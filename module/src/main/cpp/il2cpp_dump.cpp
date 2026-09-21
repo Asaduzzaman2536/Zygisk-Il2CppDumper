@@ -84,7 +84,8 @@ static std::vector<uint64_t>             g_addresses;  // all unique RVAs (for A
 // ─────────────────────────────────────────────
 //  Existing helpers (unchanged)
 // ─────────────────────────────────────────────
-void init_il2cpp_api() {
+void il2cpp_api_init(void *handle) {
+    il2cpp_handle = handle;
 #define DO_API(r, n, p) n = (r (*) p)dlsym(il2cpp_handle, #n)
 #include "il2cpp-api-functions.h"
 #undef DO_API
@@ -444,10 +445,8 @@ static void write_script_json(const std::string &outDir) {
 //  il2cpp_dump — main entry point (unchanged
 //  structure; script.json written at the end)
 // ─────────────────────────────────────────────
-void il2cpp_dump(void *handle, char *outDir) {
-    LOGI("il2cpp_handle: %p", handle);
-    il2cpp_handle = handle;
-    init_il2cpp_api();
+void il2cpp_dump(const char *outDir) {
+    LOGI("il2cpp_handle: %p", il2cpp_handle);
 
     if (il2cpp_domain_get_assemblies) {
         Dl_info dlInfo;
@@ -540,7 +539,7 @@ void il2cpp_dump(void *handle, char *outDir) {
 
     // ── Write script.json (new) ──────────────
     LOGI("writing script.json");
-    write_script_json(outDir);
+    write_script_json(std::string(outDir));
 
     LOGI("dump done!");
 }

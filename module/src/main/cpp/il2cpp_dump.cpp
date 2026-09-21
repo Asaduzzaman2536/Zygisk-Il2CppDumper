@@ -41,11 +41,11 @@ static uint64_t il2cpp_base = 0;
 
 
 /*
- * Forward declaration.
- *
- * This is required because dump_method() and
- * collect_script_method() use this function.
+ * ============================================================
+ * Forward declaration
+ * ============================================================
  */
+
 bool _il2cpp_type_is_byref(
         const Il2CppType *type);
 
@@ -58,9 +58,22 @@ bool _il2cpp_type_is_byref(
 
 struct RuntimeScriptClass {
 
+    /*
+     * Runtime Il2CppClass* address.
+     */
     uint64_t classAddress;
 
+    /*
+     * Runtime Il2CppType* address.
+     */
     uint64_t typeAddress;
+
+    /*
+     * ClassAddress - il2cpp_base.
+     *
+     * Stored as decimal in script.json.
+     */
+    uint64_t address;
 
     std::string name;
 
@@ -68,13 +81,20 @@ struct RuntimeScriptClass {
 };
 
 
+/*
+ * ============================================================
+ * Runtime method information
+ * ============================================================
+ */
+
 struct RuntimeScriptMethod {
 
+    /*
+     * Method RVA:
+     *
+     * methodPointer - il2cpp_base
+     */
     uint64_t address;
-
-    uint64_t classAddress;
-
-    uint64_t typeAddress;
 
     std::string name;
 
@@ -329,6 +349,16 @@ bool _il2cpp_type_is_byref(
 /*
  * ============================================================
  * Collect class
+ *
+ * script.json:
+ *
+ * {
+ *     "Address": 123456,
+ *     "Name": "GameFacade",
+ *     "Namespace": "Game"
+ * }
+ *
+ * ClassAddress / TypeAddress are NOT written to JSON.
  * ============================================================
  */
 
@@ -344,16 +374,40 @@ static void collect_script_class(
     RuntimeScriptClass result{};
 
 
+    /*
+     * Runtime Il2CppClass address.
+     */
     result.classAddress =
             reinterpret_cast<uint64_t>(
                     klass
             );
 
 
+    /*
+     * Runtime Il2CppType address.
+     */
     result.typeAddress =
             reinterpret_cast<uint64_t>(
                     type
             );
+
+
+    /*
+     * Class RVA.
+     *
+     * This is the class runtime address
+     * relative to libil2cpp base.
+     */
+    if (result.classAddress >= il2cpp_base) {
+
+        result.address =
+                result.classAddress -
+                il2cpp_base;
+
+    } else {
+
+        result.address = 0;
+    }
 
 
     const char *className =
@@ -395,6 +449,17 @@ static void collect_script_class(
 /*
  * ============================================================
  * Collect method
+ *
+ * script.json:
+ *
+ * {
+ *     "Address": 12345678,
+ *     "Name": "GameFacade$$Init",
+ *     "Signature": "...",
+ *     "TypeSignature": "vpp"
+ * }
+ *
+ * ClassAddress / TypeAddress are NOT written to JSON.
  * ============================================================
  */
 
@@ -414,33 +479,27 @@ static void collect_script_method(
 
 
     /*
-     * Method RVA
+     * Method RVA.
+     *
+     * Address =
+     * methodPointer - il2cpp_base
      */
-    result.address =
+    uint64_t methodPointer =
             reinterpret_cast<uint64_t>(
                     method->methodPointer
-            ) - il2cpp_base;
-
-
-    /*
-     * Class / Type addresses
-     */
-    result.classAddress =
-            reinterpret_cast<uint64_t>(
-                    klass
             );
 
 
-    auto classType =
-            il2cpp_class_get_type(
-                    klass
-            );
+    if (methodPointer >= il2cpp_base) {
 
+        result.address =
+                methodPointer -
+                il2cpp_base;
 
-    result.typeAddress =
-            reinterpret_cast<uint64_t>(
-                    classType
-            );
+    } else {
+
+        result.address = 0;
+    }
 
 
     /*
@@ -472,7 +531,9 @@ static void collect_script_method(
 
 
     /*
-     * Method name
+     * Name:
+     *
+     * GameFacade$$Init
      */
     result.name =
             std::string(className)
@@ -705,6 +766,17 @@ static void collect_script_method(
  * ============================================================
  * Write script.json
  * ============================================================
+ *
+ * IMPORTANT:
+ *
+ * ClassAddress is NOT included.
+ * TypeAddress is NOT included.
+ *
+ * Method ClassAddress is NOT included.
+ * Method TypeAddress is NOT included.
+ *
+ * Only RVA Address values are stored.
+ * ============================================================
  */
 
 static void write_script_json(
@@ -761,13 +833,13 @@ static void write_script_json(
         out << "    {\n";
 
 
-        out << "      \"ClassAddress\": "
-            << item.classAddress
-            << ",\n";
-
-
-        out << "      \"TypeAddress\": "
-            << item.typeAddress
+        /*
+         * Class RVA.
+         *
+         * Decimal.
+         */
+        out << "      \"Address\": "
+            << item.address
             << ",\n";
 
 
@@ -822,18 +894,13 @@ static void write_script_json(
         out << "    {\n";
 
 
+        /*
+         * Method RVA.
+         *
+         * Decimal.
+         */
         out << "      \"Address\": "
             << method.address
-            << ",\n";
-
-
-        out << "      \"ClassAddress\": "
-            << method.classAddress
-            << ",\n";
-
-
-        out << "      \"TypeAddress\": "
-            << method.typeAddress
             << ",\n";
 
 
@@ -876,13 +943,15 @@ static void write_script_json(
 
 
     /*
-     * Desktop Il2CppDumper metadata sections.
-     *
-     * Runtime-only dumping cannot recreate these completely
-     * without parsing global-metadata.dat.
+     * ========================================================
+     * Runtime-only sections
+     * ========================================================
      */
+
     out << "  \"ScriptString\": [],\n";
+
     out << "  \"ScriptMetadata\": [],\n";
+
     out << "  \"ScriptMetadataMethod\": []\n";
 
 
@@ -1049,17 +1118,29 @@ std::string dump_method(
          */
         if (method->methodPointer) {
 
+            uint64_t methodAddress =
+                    reinterpret_cast<uint64_t>(
+                            method->methodPointer
+                    );
+
+
+            uint64_t methodRva = 0;
+
+
+            if (methodAddress >= il2cpp_base) {
+
+                methodRva =
+                        methodAddress -
+                        il2cpp_base;
+            }
+
+
             outPut
                     << "\t// RVA: 0x"
                     << std::hex
-                    << (
-                            uint64_t)
-                            method->methodPointer
-                            - il2cpp_base
+                    << methodRva
                     << " VA: 0x"
-                    << (
-                            uint64_t)
-                            method->methodPointer;
+                    << methodAddress;
 
         } else {
 
@@ -1523,8 +1604,16 @@ std::string dump_field(
  * ============================================================
  * dump_type
  *
- * This is where ClassAddress and TypeAddress are
- * written into dump.cs.
+ * Class header only:
+ *
+ * // ClassAddress: 0x7A12345678
+ * // TypeAddress: 0x7A12346000
+ * // Address: 12345678
+ * // Namespace: Game
+ * public class GameFacade
+ *
+ * No ClassAddress / TypeAddress are added to methods
+ * or fields.
  * ============================================================
  */
 
@@ -1564,6 +1653,22 @@ std::string dump_type(
 
 
     /*
+     * Class RVA:
+     *
+     * ClassAddress - il2cpp_base
+     */
+    uint64_t classAddressRva = 0;
+
+
+    if (classAddress >= il2cpp_base) {
+
+        classAddressRva =
+                classAddress -
+                il2cpp_base;
+    }
+
+
+    /*
      * Save class information for script.json.
      */
     collect_script_class(
@@ -1600,15 +1705,40 @@ std::string dump_type(
 
     /*
      * ========================================================
-     * Namespace
+     * Address
+     *
+     * IMPORTANT:
+     * Decimal, just like script.json.
      * ========================================================
      */
 
     outPut
-            << "// Namespace: "
-            << il2cpp_class_get_namespace(
+            << "// Address: "
+            << std::dec
+            << classAddressRva
+            << "\n";
+
+
+    /*
+     * ========================================================
+     * Namespace
+     * ========================================================
+     */
+
+    const char *namespaceName =
+            il2cpp_class_get_namespace(
                     klass
-            )
+            );
+
+
+    if (!namespaceName) {
+        namespaceName = "";
+    }
+
+
+    outPut
+            << "// Namespace: "
+            << namespaceName
             << "\n";
 
 
@@ -1748,10 +1878,19 @@ std::string dump_type(
     /*
      * Class name
      */
-    outPut
-            << il2cpp_class_get_name(
+    const char *className =
+            il2cpp_class_get_name(
                     klass
             );
+
+
+    if (!className) {
+        className = "Unknown";
+    }
+
+
+    outPut
+            << className;
 
 
     /*

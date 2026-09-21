@@ -8,12 +8,16 @@
 #include <cstdlib>
 #include <cstring>
 #include <cinttypes>
+#include <cstdio>
+
 #include <string>
 #include <vector>
 #include <sstream>
 #include <fstream>
-#include <unistd.h>
 #include <iomanip>
+#include <utility>
+
+#include <unistd.h>
 
 #include "xdl.h"
 #include "log.h"
@@ -26,32 +30,66 @@
 
 #undef DO_API
 
+
+/*
+ * ============================================================
+ * Globals
+ * ============================================================
+ */
+
 static uint64_t il2cpp_base = 0;
 
 
 /*
- * ============================================================
- * Forward declarations
- * ============================================================
+ * Forward declaration.
+ *
+ * This is required because dump_method() and
+ * collect_script_method() use this function.
  */
-
-bool _il2cpp_type_is_byref(const Il2CppType *type);
+bool _il2cpp_type_is_byref(
+        const Il2CppType *type);
 
 
 /*
  * ============================================================
- * Runtime script.json structure
+ * Runtime class information
  * ============================================================
  */
 
-struct RuntimeScriptMethod {
-    uint64_t address;
+struct RuntimeScriptClass {
+
+    uint64_t classAddress;
+
+    uint64_t typeAddress;
+
     std::string name;
+
+    std::string namespaceName;
+};
+
+
+struct RuntimeScriptMethod {
+
+    uint64_t address;
+
+    uint64_t classAddress;
+
+    uint64_t typeAddress;
+
+    std::string name;
+
     std::string signature;
+
     std::string typeSignature;
 };
 
-static std::vector<RuntimeScriptMethod> g_scriptMethods;
+
+static std::vector<RuntimeScriptClass>
+        g_scriptClasses;
+
+
+static std::vector<RuntimeScriptMethod>
+        g_scriptMethods;
 
 
 /*
@@ -62,12 +100,12 @@ static std::vector<RuntimeScriptMethod> g_scriptMethods;
 
 void init_il2cpp_api(void *handle) {
 
-#define DO_API(r, n, p) {                         \
-    n = (r (*) p)xdl_sym(handle, #n, nullptr);   \
-    if (!n) {                                    \
-        LOGW("api not found %s", #n);            \
-    }                                            \
-}
+#define DO_API(r, n, p) {                                      \
+        n = (r (*) p)xdl_sym(handle, #n, nullptr);             \
+        if (!n) {                                              \
+            LOGW("api not found %s", #n);                      \
+        }                                                       \
+    }
 
 #include "il2cpp-api-functions.h"
 
@@ -77,11 +115,12 @@ void init_il2cpp_api(void *handle) {
 
 /*
  * ============================================================
- * JSON escaping
+ * JSON escape
  * ============================================================
  */
 
-static std::string json_escape(const char *str) {
+static std::string json_escape(
+        const char *str) {
 
     if (!str) {
         return "";
@@ -90,7 +129,9 @@ static std::string json_escape(const char *str) {
     std::string out;
 
     const unsigned char *p =
-            reinterpret_cast<const unsigned char *>(str);
+            reinterpret_cast<
+                    const unsigned char *
+            >(str);
 
     while (*p) {
 
@@ -141,7 +182,8 @@ static std::string json_escape(const char *str) {
 
                 } else {
 
-                    out += static_cast<char>(*p);
+                    out +=
+                            static_cast<char>(*p);
                 }
 
                 break;
@@ -151,61 +193,6 @@ static std::string json_escape(const char *str) {
     }
 
     return out;
-}
-
-
-/*
- * ============================================================
- * Type -> runtime script signature
- * ============================================================
- */
-
-static char get_script_type(const Il2CppType *type) {
-
-    if (!type) {
-        return 'v';
-    }
-
-    switch (type->type) {
-
-        case IL2CPP_TYPE_VOID:
-            return 'v';
-
-        case IL2CPP_TYPE_BOOLEAN:
-        case IL2CPP_TYPE_I1:
-        case IL2CPP_TYPE_U1:
-        case IL2CPP_TYPE_I2:
-        case IL2CPP_TYPE_U2:
-        case IL2CPP_TYPE_CHAR:
-        case IL2CPP_TYPE_I4:
-        case IL2CPP_TYPE_U4:
-            return 'i';
-
-        case IL2CPP_TYPE_I8:
-        case IL2CPP_TYPE_U8:
-            return 'l';
-
-        case IL2CPP_TYPE_R4:
-            return 'f';
-
-        case IL2CPP_TYPE_R8:
-            return 'd';
-
-        case IL2CPP_TYPE_I:
-        case IL2CPP_TYPE_U:
-        case IL2CPP_TYPE_PTR:
-        case IL2CPP_TYPE_CLASS:
-        case IL2CPP_TYPE_VALUETYPE:
-        case IL2CPP_TYPE_OBJECT:
-        case IL2CPP_TYPE_STRING:
-        case IL2CPP_TYPE_ARRAY:
-        case IL2CPP_TYPE_SZARRAY:
-        case IL2CPP_TYPE_GENERICINST:
-            return 'p';
-
-        default:
-            return 'p';
-    }
 }
 
 
@@ -259,7 +246,63 @@ static std::string get_type_name_safe(
 
 /*
  * ============================================================
- * ByRef helper
+ * Script type character
+ * ============================================================
+ */
+
+static char get_script_type(
+        const Il2CppType *type) {
+
+    if (!type) {
+        return 'v';
+    }
+
+    switch (type->type) {
+
+        case IL2CPP_TYPE_VOID:
+            return 'v';
+
+        case IL2CPP_TYPE_BOOLEAN:
+        case IL2CPP_TYPE_I1:
+        case IL2CPP_TYPE_U1:
+        case IL2CPP_TYPE_I2:
+        case IL2CPP_TYPE_U2:
+        case IL2CPP_TYPE_CHAR:
+        case IL2CPP_TYPE_I4:
+        case IL2CPP_TYPE_U4:
+            return 'i';
+
+        case IL2CPP_TYPE_I8:
+        case IL2CPP_TYPE_U8:
+            return 'l';
+
+        case IL2CPP_TYPE_R4:
+            return 'f';
+
+        case IL2CPP_TYPE_R8:
+            return 'd';
+
+        case IL2CPP_TYPE_I:
+        case IL2CPP_TYPE_U:
+        case IL2CPP_TYPE_PTR:
+        case IL2CPP_TYPE_CLASS:
+        case IL2CPP_TYPE_VALUETYPE:
+        case IL2CPP_TYPE_OBJECT:
+        case IL2CPP_TYPE_STRING:
+        case IL2CPP_TYPE_ARRAY:
+        case IL2CPP_TYPE_SZARRAY:
+        case IL2CPP_TYPE_GENERICINST:
+            return 'p';
+
+        default:
+            return 'p';
+    }
+}
+
+
+/*
+ * ============================================================
+ * ByRef
  * ============================================================
  */
 
@@ -270,10 +313,13 @@ bool _il2cpp_type_is_byref(
         return false;
     }
 
-    auto byref = type->byref;
+    auto byref =
+            type->byref;
 
     if (il2cpp_type_is_byref) {
-        byref = il2cpp_type_is_byref(type);
+
+        byref =
+                il2cpp_type_is_byref(type);
     }
 
     return byref;
@@ -282,7 +328,73 @@ bool _il2cpp_type_is_byref(
 
 /*
  * ============================================================
- * Collect one runtime method for script.json
+ * Collect class
+ * ============================================================
+ */
+
+static void collect_script_class(
+        Il2CppClass *klass,
+        const Il2CppType *type) {
+
+    if (!klass || !type) {
+        return;
+    }
+
+
+    RuntimeScriptClass result{};
+
+
+    result.classAddress =
+            reinterpret_cast<uint64_t>(
+                    klass
+            );
+
+
+    result.typeAddress =
+            reinterpret_cast<uint64_t>(
+                    type
+            );
+
+
+    const char *className =
+            il2cpp_class_get_name(
+                    klass
+            );
+
+
+    const char *namespaceName =
+            il2cpp_class_get_namespace(
+                    klass
+            );
+
+
+    if (!className) {
+        className = "Unknown";
+    }
+
+
+    if (!namespaceName) {
+        namespaceName = "";
+    }
+
+
+    result.name =
+            className;
+
+
+    result.namespaceName =
+            namespaceName;
+
+
+    g_scriptClasses.emplace_back(
+            std::move(result)
+    );
+}
+
+
+/*
+ * ============================================================
+ * Collect method
  * ============================================================
  */
 
@@ -290,11 +402,10 @@ static void collect_script_method(
         const MethodInfo *method,
         Il2CppClass *klass) {
 
-    if (!method || !klass) {
-        return;
-    }
+    if (!method ||
+        !klass ||
+        !method->methodPointer) {
 
-    if (!method->methodPointer) {
         return;
     }
 
@@ -303,7 +414,7 @@ static void collect_script_method(
 
 
     /*
-     * RVA
+     * Method RVA
      */
     result.address =
             reinterpret_cast<uint64_t>(
@@ -312,10 +423,34 @@ static void collect_script_method(
 
 
     /*
-     * Class
+     * Class / Type addresses
+     */
+    result.classAddress =
+            reinterpret_cast<uint64_t>(
+                    klass
+            );
+
+
+    auto classType =
+            il2cpp_class_get_type(
+                    klass
+            );
+
+
+    result.typeAddress =
+            reinterpret_cast<uint64_t>(
+                    classType
+            );
+
+
+    /*
+     * Class name
      */
     const char *className =
-            il2cpp_class_get_name(klass);
+            il2cpp_class_get_name(
+                    klass
+            );
+
 
     if (!className) {
         className = "Unknown";
@@ -323,10 +458,13 @@ static void collect_script_method(
 
 
     /*
-     * Method
+     * Method name
      */
     const char *methodName =
-            il2cpp_method_get_name(method);
+            il2cpp_method_get_name(
+                    method
+            );
+
 
     if (!methodName) {
         methodName = "Unknown";
@@ -334,9 +472,7 @@ static void collect_script_method(
 
 
     /*
-     * Il2CppDumper style:
-     *
-     * Class$$Method
+     * Method name
      */
     result.name =
             std::string(className)
@@ -349,6 +485,7 @@ static void collect_script_method(
      */
     uint32_t iflags = 0;
 
+
     uint32_t flags =
             il2cpp_method_get_flags(
                     method,
@@ -357,7 +494,8 @@ static void collect_script_method(
 
 
     bool isStatic =
-            (flags & METHOD_ATTRIBUTE_STATIC) != 0;
+            (flags &
+             METHOD_ATTRIBUTE_STATIC) != 0;
 
 
     /*
@@ -389,7 +527,7 @@ static void collect_script_method(
 
 
     /*
-     * TypeSignature
+     * Type signature
      */
     std::stringstream typeSignature;
 
@@ -404,9 +542,7 @@ static void collect_script_method(
 
 
     /*
-     * Instance method
-     *
-     * Native IL2CPP method receives __this.
+     * this
      */
     if (!isStatic) {
 
@@ -475,15 +611,19 @@ static void collect_script_method(
 
 
         /*
-         * Preserve ref/out/in information.
+         * ref / out / in
          */
-        if (_il2cpp_type_is_byref(param)) {
+        if (_il2cpp_type_is_byref(
+                param)) {
 
             uint16_t attrs =
                     param->attrs;
 
-            if ((attrs & PARAM_ATTRIBUTE_OUT) &&
-                !(attrs & PARAM_ATTRIBUTE_IN)) {
+
+            if ((attrs &
+                 PARAM_ATTRIBUTE_OUT) &&
+                !(attrs &
+                  PARAM_ATTRIBUTE_IN)) {
 
                 signature
                         << "out "
@@ -492,8 +632,10 @@ static void collect_script_method(
                         << parameterName;
 
             } else if (
-                    (attrs & PARAM_ATTRIBUTE_IN) &&
-                    !(attrs & PARAM_ATTRIBUTE_OUT)) {
+                    (attrs &
+                     PARAM_ATTRIBUTE_IN) &&
+                    !(attrs &
+                      PARAM_ATTRIBUTE_OUT)) {
 
                 signature
                         << "in "
@@ -530,7 +672,7 @@ static void collect_script_method(
 
 
     /*
-     * MethodInfo is the final native argument.
+     * MethodInfo argument
      */
     if (hasArgument) {
         signature << ", ";
@@ -569,7 +711,6 @@ static void write_script_json(
         const char *outDir) {
 
     if (!outDir) {
-        LOGE("script.json: outDir is null");
         return;
     }
 
@@ -601,8 +742,72 @@ static void write_script_json(
 
 
     /*
-     * ScriptMethod
+     * ========================================================
+     * ScriptClass
+     * ========================================================
      */
+
+    out << "  \"ScriptClass\": [\n";
+
+
+    for (size_t i = 0;
+         i < g_scriptClasses.size();
+         ++i) {
+
+        const auto &item =
+                g_scriptClasses[i];
+
+
+        out << "    {\n";
+
+
+        out << "      \"ClassAddress\": "
+            << item.classAddress
+            << ",\n";
+
+
+        out << "      \"TypeAddress\": "
+            << item.typeAddress
+            << ",\n";
+
+
+        out << "      \"Name\": \""
+            << json_escape(
+                    item.name.c_str()
+            )
+            << "\",\n";
+
+
+        out << "      \"Namespace\": \""
+            << json_escape(
+                    item.namespaceName.c_str()
+            )
+            << "\"\n";
+
+
+        out << "    }";
+
+
+        if (i + 1 <
+            g_scriptClasses.size()) {
+
+            out << ",";
+        }
+
+
+        out << "\n";
+    }
+
+
+    out << "  ],\n";
+
+
+    /*
+     * ========================================================
+     * ScriptMethod
+     * ========================================================
+     */
+
     out << "  \"ScriptMethod\": [\n";
 
 
@@ -619,6 +824,16 @@ static void write_script_json(
 
         out << "      \"Address\": "
             << method.address
+            << ",\n";
+
+
+        out << "      \"ClassAddress\": "
+            << method.classAddress
+            << ",\n";
+
+
+        out << "      \"TypeAddress\": "
+            << method.typeAddress
             << ",\n";
 
 
@@ -661,9 +876,10 @@ static void write_script_json(
 
 
     /*
-     * These require metadata information from
-     * global-metadata.dat and are therefore empty
-     * in this runtime-only implementation.
+     * Desktop Il2CppDumper metadata sections.
+     *
+     * Runtime-only dumping cannot recreate these completely
+     * without parsing global-metadata.dat.
      */
     out << "  \"ScriptString\": [],\n";
     out << "  \"ScriptMetadata\": [],\n";
@@ -683,7 +899,8 @@ static void write_script_json(
 
 
     LOGI(
-            "script.json method count: %zu",
+            "classes: %zu methods: %zu",
+            g_scriptClasses.size(),
             g_scriptMethods.size()
     );
 }
@@ -731,36 +948,47 @@ std::string get_method_modifier(
     }
 
 
-    if (flags & METHOD_ATTRIBUTE_STATIC) {
+    if (flags &
+        METHOD_ATTRIBUTE_STATIC) {
+
         outPut << "static ";
     }
 
 
-    if (flags & METHOD_ATTRIBUTE_ABSTRACT) {
+    if (flags &
+        METHOD_ATTRIBUTE_ABSTRACT) {
 
         outPut << "abstract ";
 
         if ((flags &
              METHOD_ATTRIBUTE_VTABLE_LAYOUT_MASK)
-            == METHOD_ATTRIBUTE_REUSE_SLOT) {
+            ==
+            METHOD_ATTRIBUTE_REUSE_SLOT) {
 
             outPut << "override ";
         }
 
-    } else if (flags & METHOD_ATTRIBUTE_FINAL) {
+    } else if (
+            flags &
+            METHOD_ATTRIBUTE_FINAL) {
 
         if ((flags &
              METHOD_ATTRIBUTE_VTABLE_LAYOUT_MASK)
-            == METHOD_ATTRIBUTE_REUSE_SLOT) {
+            ==
+            METHOD_ATTRIBUTE_REUSE_SLOT) {
 
-            outPut << "sealed override ";
+            outPut
+                    << "sealed override ";
         }
 
-    } else if (flags & METHOD_ATTRIBUTE_VIRTUAL) {
+    } else if (
+            flags &
+            METHOD_ATTRIBUTE_VIRTUAL) {
 
         if ((flags &
              METHOD_ATTRIBUTE_VTABLE_LAYOUT_MASK)
-            == METHOD_ATTRIBUTE_NEW_SLOT) {
+            ==
+            METHOD_ATTRIBUTE_NEW_SLOT) {
 
             outPut << "virtual ";
 
@@ -771,7 +999,9 @@ std::string get_method_modifier(
     }
 
 
-    if (flags & METHOD_ATTRIBUTE_PINVOKE_IMPL) {
+    if (flags &
+        METHOD_ATTRIBUTE_PINVOKE_IMPL) {
+
         outPut << "extern ";
     }
 
@@ -806,7 +1036,7 @@ std::string dump_method(
 
 
         /*
-         * Collect script.json information.
+         * Add method to script.json.
          */
         collect_script_method(
                 method,
@@ -815,29 +1045,21 @@ std::string dump_method(
 
 
         /*
-         * Existing dump.cs.
+         * RVA / VA
          */
         if (method->methodPointer) {
 
             outPut
-                    << "\t// RVA: 0x";
-
-
-            outPut
+                    << "\t// RVA: 0x"
                     << std::hex
-                    << (uint64_t)
-                       method->methodPointer
-                       - il2cpp_base;
-
-
-            outPut
-                    << " VA: 0x";
-
-
-            outPut
-                    << std::hex
-                    << (uint64_t)
-                       method->methodPointer;
+                    << (
+                            uint64_t)
+                            method->methodPointer
+                            - il2cpp_base
+                    << " VA: 0x"
+                    << (
+                            uint64_t)
+                            method->methodPointer;
 
         } else {
 
@@ -1057,7 +1279,8 @@ std::string dump_property(
                 );
 
 
-        outPut << "\t";
+        outPut
+                << "\t";
 
 
         Il2CppClass *prop_class =
@@ -1134,14 +1357,12 @@ std::string dump_property(
             outPut
                     << "}\n";
 
-        } else {
+        } else if (prop_name) {
 
-            if (prop_name) {
-
-                outPut
-                        << " // unknown property "
-                        << prop_name;
-            }
+            outPut
+                    << " // unknown property "
+                    << prop_name
+                    << "\n";
         }
     }
 
@@ -1232,6 +1453,7 @@ std::string dump_field(
                 outPut << "static ";
             }
 
+
             if (attrs &
                 FIELD_ATTRIBUTE_INIT_ONLY) {
 
@@ -1300,6 +1522,9 @@ std::string dump_field(
 /*
  * ============================================================
  * dump_type
+ *
+ * This is where ClassAddress and TypeAddress are
+ * written into dump.cs.
  * ============================================================
  */
 
@@ -1320,8 +1545,67 @@ std::string dump_type(
     }
 
 
+    /*
+     * ========================================================
+     * Runtime addresses
+     * ========================================================
+     */
+
+    uint64_t classAddress =
+            reinterpret_cast<uint64_t>(
+                    klass
+            );
+
+
+    uint64_t typeAddress =
+            reinterpret_cast<uint64_t>(
+                    type
+            );
+
+
+    /*
+     * Save class information for script.json.
+     */
+    collect_script_class(
+            klass,
+            type
+    );
+
+
+    /*
+     * ========================================================
+     * ClassAddress
+     * ========================================================
+     */
+
     outPut
-            << "\n// Namespace: "
+            << "\n// ClassAddress: 0x"
+            << std::hex
+            << classAddress
+            << "\n";
+
+
+    /*
+     * ========================================================
+     * TypeAddress
+     * ========================================================
+     */
+
+    outPut
+            << "// TypeAddress: 0x"
+            << std::hex
+            << typeAddress
+            << "\n";
+
+
+    /*
+     * ========================================================
+     * Namespace
+     * ========================================================
+     */
+
+    outPut
+            << "// Namespace: "
             << il2cpp_class_get_namespace(
                     klass
             )
@@ -1364,25 +1648,33 @@ std::string dump_type(
         case TYPE_ATTRIBUTE_PUBLIC:
         case TYPE_ATTRIBUTE_NESTED_PUBLIC:
 
-            outPut << "public ";
+            outPut
+                    << "public ";
             break;
+
 
         case TYPE_ATTRIBUTE_NOT_PUBLIC:
         case TYPE_ATTRIBUTE_NESTED_FAM_AND_ASSEM:
         case TYPE_ATTRIBUTE_NESTED_ASSEMBLY:
 
-            outPut << "internal ";
+            outPut
+                    << "internal ";
             break;
+
 
         case TYPE_ATTRIBUTE_NESTED_PRIVATE:
 
-            outPut << "private ";
+            outPut
+                    << "private ";
             break;
+
 
         case TYPE_ATTRIBUTE_NESTED_FAMILY:
 
-            outPut << "protected ";
+            outPut
+                    << "protected ";
             break;
+
 
         case TYPE_ATTRIBUTE_NESTED_FAM_OR_ASSEM:
 
@@ -1392,13 +1684,17 @@ std::string dump_type(
     }
 
 
+    /*
+     * static / abstract / sealed
+     */
     if ((flags &
          TYPE_ATTRIBUTE_ABSTRACT)
         &&
         (flags &
          TYPE_ATTRIBUTE_SEALED)) {
 
-        outPut << "static ";
+        outPut
+                << "static ";
 
     } else if (
             !(flags &
@@ -1407,7 +1703,8 @@ std::string dump_type(
             (flags &
              TYPE_ATTRIBUTE_ABSTRACT)) {
 
-        outPut << "abstract ";
+        outPut
+                << "abstract ";
 
     } else if (
             !is_valuetype
@@ -1417,29 +1714,40 @@ std::string dump_type(
             (flags &
              TYPE_ATTRIBUTE_SEALED)) {
 
-        outPut << "sealed ";
+        outPut
+                << "sealed ";
     }
 
 
+    /*
+     * class / struct / enum / interface
+     */
     if (flags &
         TYPE_ATTRIBUTE_INTERFACE) {
 
-        outPut << "interface ";
+        outPut
+                << "interface ";
 
     } else if (is_enum) {
 
-        outPut << "enum ";
+        outPut
+                << "enum ";
 
     } else if (is_valuetype) {
 
-        outPut << "struct ";
+        outPut
+                << "struct ";
 
     } else {
 
-        outPut << "class ";
+        outPut
+                << "class ";
     }
 
 
+    /*
+     * Class name
+     */
     outPut
             << il2cpp_class_get_name(
                     klass
@@ -1447,8 +1755,11 @@ std::string dump_type(
 
 
     /*
-     * Parent/interfaces
+     * ========================================================
+     * Parent
+     * ========================================================
      */
+
     std::vector<std::string> extends;
 
 
@@ -1480,6 +1791,12 @@ std::string dump_type(
         }
     }
 
+
+    /*
+     * ========================================================
+     * Interfaces
+     * ========================================================
+     */
 
     void *iter = nullptr;
 
@@ -1519,18 +1836,27 @@ std::string dump_type(
             << "\n{";
 
 
+    /*
+     * Fields
+     */
     outPut
             << dump_field(
                     klass
             );
 
 
+    /*
+     * Properties
+     */
     outPut
             << dump_property(
                     klass
             );
 
 
+    /*
+     * Methods
+     */
     outPut
             << dump_method(
                     klass
@@ -1560,7 +1886,9 @@ void il2cpp_api_init(
     );
 
 
-    init_il2cpp_api(handle);
+    init_il2cpp_api(
+            handle
+    );
 
 
     if (il2cpp_domain_get_assemblies) {
@@ -1587,7 +1915,7 @@ void il2cpp_api_init(
     } else {
 
         LOGE(
-                "Failed to initialize il2cpp api."
+                "Failed to initialize il2cpp API."
         );
 
         return;
@@ -1623,12 +1951,16 @@ void il2cpp_api_init(
 void il2cpp_dump(
         const char *outDir) {
 
-    LOGI("dumping...");
+    LOGI(
+            "dumping..."
+    );
 
 
     /*
-     * Clear old JSON data.
+     * Clear previous runtime data.
      */
+    g_scriptClasses.clear();
+
     g_scriptMethods.clear();
 
 
@@ -1649,8 +1981,18 @@ void il2cpp_dump(
             );
 
 
+    if (!assemblies) {
+
+        LOGE(
+                "il2cpp_domain_get_assemblies failed"
+        );
+
+        return;
+    }
+
+
     /*
-     * Image list
+     * Image header
      */
     std::stringstream imageOutput;
 
@@ -1665,6 +2007,11 @@ void il2cpp_dump(
                 );
 
 
+        if (!image) {
+            continue;
+        }
+
+
         imageOutput
                 << "// Image "
                 << i
@@ -1677,7 +2024,7 @@ void il2cpp_dump(
 
 
     /*
-     * dump.cs
+     * dump.cs output
      */
     std::vector<std::string> outPuts;
 
@@ -1705,6 +2052,11 @@ void il2cpp_dump(
                     );
 
 
+            if (!image) {
+                continue;
+            }
+
+
             std::stringstream imageStr;
 
 
@@ -1715,7 +2067,7 @@ void il2cpp_dump(
                     );
 
 
-            auto classCount =
+            size_t classCount =
                     il2cpp_image_get_class_count(
                             image
                     );
@@ -1750,7 +2102,7 @@ void il2cpp_dump(
                 }
 
 
-                auto outPut =
+                std::string output =
                         imageStr.str()
                         +
                         dump_type(
@@ -1759,7 +2111,7 @@ void il2cpp_dump(
 
 
                 outPuts.push_back(
-                        outPut
+                        std::move(output)
                 );
             }
         }
@@ -1805,15 +2157,8 @@ void il2cpp_dump(
                 );
 
 
-        if (assemblyLoad &&
-            assemblyLoad->methodPointer) {
-
-            LOGI(
-                    "Assembly::Load: %p",
-                    assemblyLoad->methodPointer
-            );
-
-        } else {
+        if (!assemblyLoad ||
+            !assemblyLoad->methodPointer) {
 
             LOGI(
                     "miss Assembly::Load"
@@ -1823,15 +2168,8 @@ void il2cpp_dump(
         }
 
 
-        if (assemblyGetTypes &&
-            assemblyGetTypes->methodPointer) {
-
-            LOGI(
-                    "Assembly::GetTypes: %p",
-                    assemblyGetTypes->methodPointer
-            );
-
-        } else {
+        if (!assemblyGetTypes ||
+            !assemblyGetTypes->methodPointer) {
 
             LOGI(
                     "miss Assembly::GetTypes"
@@ -1864,10 +2202,15 @@ void il2cpp_dump(
                     );
 
 
+            if (!image) {
+                continue;
+            }
+
+
             std::stringstream imageStr;
 
 
-            auto image_name =
+            const char *image_name =
                     il2cpp_image_get_name(
                             image
                     );
@@ -1878,21 +2221,32 @@ void il2cpp_dump(
                     << image_name;
 
 
-            auto imageName =
-                    std::string(
-                            image_name
-                    );
+            std::string imageName =
+                    image_name
+                    ? image_name
+                    : "";
 
 
             auto pos =
                     imageName.rfind('.');
 
 
-            auto imageNameNoExt =
-                    imageName.substr(
-                            0,
-                            pos
-                    );
+            std::string imageNameNoExt;
+
+
+            if (pos != std::string::npos) {
+
+                imageNameNoExt =
+                        imageName.substr(
+                                0,
+                                pos
+                        );
+
+            } else {
+
+                imageNameNoExt =
+                        imageName;
+            }
 
 
             auto assemblyFileName =
@@ -1954,7 +2308,7 @@ void il2cpp_dump(
                 }
 
 
-                auto outPut =
+                std::string output =
                         imageStr.str()
                         +
                         dump_type(
@@ -1963,7 +2317,7 @@ void il2cpp_dump(
 
 
                 outPuts.push_back(
-                        outPut
+                        std::move(output)
                 );
             }
         }
@@ -1976,18 +2330,15 @@ void il2cpp_dump(
      * ========================================================
      */
 
-    LOGI(
-            "write dump file"
-    );
-
-
     std::string outPath =
             std::string(outDir)
             + "/files/dump.cs";
 
 
     std::ofstream outStream(
-            outPath
+            outPath,
+            std::ios::out |
+            std::ios::trunc
     );
 
 
@@ -2017,12 +2368,6 @@ void il2cpp_dump(
     outStream.close();
 
 
-    LOGI(
-            "dump.cs written: %s",
-            outPath.c_str()
-    );
-
-
     /*
      * ========================================================
      * Write script.json
@@ -2041,8 +2386,18 @@ void il2cpp_dump(
      */
 
     LOGI(
-            "dump done! classes=%zu methods=%zu",
-            outPuts.size(),
+            "dump done!"
+    );
+
+
+    LOGI(
+            "classes: %zu",
+            g_scriptClasses.size()
+    );
+
+
+    LOGI(
+            "methods: %zu",
             g_scriptMethods.size()
     );
 }

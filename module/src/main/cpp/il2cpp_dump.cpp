@@ -19,6 +19,8 @@
 #include "xdl.h"
 #include <thread>
 #include <unistd.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 #define DO_API(r, n, p) r (*n) p
 #include "il2cpp-api-functions.h"

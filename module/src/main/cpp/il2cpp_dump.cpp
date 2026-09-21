@@ -31,7 +31,16 @@ static uint64_t il2cpp_base = 0;
 
 /*
  * ============================================================
- * Runtime script.json data
+ * Forward declarations
+ * ============================================================
+ */
+
+bool _il2cpp_type_is_byref(const Il2CppType *type);
+
+
+/*
+ * ============================================================
+ * Runtime script.json structure
  * ============================================================
  */
 
@@ -43,6 +52,27 @@ struct RuntimeScriptMethod {
 };
 
 static std::vector<RuntimeScriptMethod> g_scriptMethods;
+
+
+/*
+ * ============================================================
+ * IL2CPP API initialization
+ * ============================================================
+ */
+
+void init_il2cpp_api(void *handle) {
+
+#define DO_API(r, n, p) {                         \
+    n = (r (*) p)xdl_sym(handle, #n, nullptr);   \
+    if (!n) {                                    \
+        LOGW("api not found %s", #n);            \
+    }                                            \
+}
+
+#include "il2cpp-api-functions.h"
+
+#undef DO_API
+}
 
 
 /*
@@ -126,9 +156,7 @@ static std::string json_escape(const char *str) {
 
 /*
  * ============================================================
- * Runtime type signature
- *
- * This is intended to describe the native method signature.
+ * Type -> runtime script signature
  * ============================================================
  */
 
@@ -183,7 +211,7 @@ static char get_script_type(const Il2CppType *type) {
 
 /*
  * ============================================================
- * Get safe class/type name
+ * Safe class name
  * ============================================================
  */
 
@@ -205,6 +233,12 @@ static std::string get_class_name_safe(
 }
 
 
+/*
+ * ============================================================
+ * Safe type name
+ * ============================================================
+ */
+
 static std::string get_type_name_safe(
         const Il2CppType *type) {
 
@@ -225,12 +259,35 @@ static std::string get_type_name_safe(
 
 /*
  * ============================================================
- * Build runtime script method
+ * ByRef helper
+ * ============================================================
+ */
+
+bool _il2cpp_type_is_byref(
+        const Il2CppType *type) {
+
+    if (!type) {
+        return false;
+    }
+
+    auto byref = type->byref;
+
+    if (il2cpp_type_is_byref) {
+        byref = il2cpp_type_is_byref(type);
+    }
+
+    return byref;
+}
+
+
+/*
+ * ============================================================
+ * Collect one runtime method for script.json
  * ============================================================
  */
 
 static void collect_script_method(
-        MethodInfo *method,
+        const MethodInfo *method,
         Il2CppClass *klass) {
 
     if (!method || !klass) {
@@ -241,7 +298,9 @@ static void collect_script_method(
         return;
     }
 
+
     RuntimeScriptMethod result{};
+
 
     /*
      * RVA
@@ -253,7 +312,7 @@ static void collect_script_method(
 
 
     /*
-     * Class name
+     * Class
      */
     const char *className =
             il2cpp_class_get_name(klass);
@@ -264,7 +323,7 @@ static void collect_script_method(
 
 
     /*
-     * Method name
+     * Method
      */
     const char *methodName =
             il2cpp_method_get_name(method);
@@ -275,11 +334,9 @@ static void collect_script_method(
 
 
     /*
-     * Il2CppDumper-style name
+     * Il2CppDumper style:
      *
-     * Example:
-     *
-     * PlayerController$$Update
+     * Class$$Method
      */
     result.name =
             std::string(className)
@@ -288,7 +345,7 @@ static void collect_script_method(
 
 
     /*
-     * Method flags
+     * Flags
      */
     uint32_t iflags = 0;
 
@@ -298,6 +355,7 @@ static void collect_script_method(
                     &iflags
             );
 
+
     bool isStatic =
             (flags & METHOD_ATTRIBUTE_STATIC) != 0;
 
@@ -306,16 +364,22 @@ static void collect_script_method(
      * Return type
      */
     auto returnType =
-            il2cpp_method_get_return_type(method);
+            il2cpp_method_get_return_type(
+                    method
+            );
+
 
     std::string returnTypeName =
-            get_type_name_safe(returnType);
+            get_type_name_safe(
+                    returnType
+            );
 
 
     /*
-     * C++ style signature
+     * Signature
      */
     std::stringstream signature;
+
 
     signature
             << returnTypeName
@@ -325,21 +389,25 @@ static void collect_script_method(
 
 
     /*
-     * Native TypeSignature
-     *
-     * Return type first.
+     * TypeSignature
      */
     std::stringstream typeSignature;
 
+
     typeSignature
-            << get_script_type(returnType);
+            << get_script_type(
+                    returnType
+            );
+
+
+    bool hasArgument = false;
 
 
     /*
-     * Instance methods receive __this.
+     * Instance method
+     *
+     * Native IL2CPP method receives __this.
      */
-    bool hasArgument = false;
-
     if (!isStatic) {
 
         signature
@@ -356,7 +424,10 @@ static void collect_script_method(
      * Parameters
      */
     uint32_t paramCount =
-            il2cpp_method_get_param_count(method);
+            il2cpp_method_get_param_count(
+                    method
+            );
+
 
     for (uint32_t i = 0;
          i < paramCount;
@@ -368,6 +439,7 @@ static void collect_script_method(
                         i
                 );
 
+
         if (!param) {
             continue;
         }
@@ -378,24 +450,24 @@ static void collect_script_method(
         }
 
 
-        /*
-         * Parameter type
-         */
         auto parameterClass =
-                il2cpp_class_from_type(param);
+                il2cpp_class_from_type(
+                        param
+                );
+
 
         std::string parameterType =
-                get_class_name_safe(parameterClass);
+                get_class_name_safe(
+                        parameterClass
+                );
 
 
-        /*
-         * Parameter name
-         */
         const char *parameterName =
                 il2cpp_method_get_param_name(
                         method,
                         i
                 );
+
 
         if (!parameterName) {
             parameterName = "arg";
@@ -403,14 +475,40 @@ static void collect_script_method(
 
 
         /*
-         * byref
+         * Preserve ref/out/in information.
          */
         if (_il2cpp_type_is_byref(param)) {
 
-            signature
-                    << parameterType
-                    << "& "
-                    << parameterName;
+            uint16_t attrs =
+                    param->attrs;
+
+            if ((attrs & PARAM_ATTRIBUTE_OUT) &&
+                !(attrs & PARAM_ATTRIBUTE_IN)) {
+
+                signature
+                        << "out "
+                        << parameterType
+                        << " "
+                        << parameterName;
+
+            } else if (
+                    (attrs & PARAM_ATTRIBUTE_IN) &&
+                    !(attrs & PARAM_ATTRIBUTE_OUT)) {
+
+                signature
+                        << "in "
+                        << parameterType
+                        << " "
+                        << parameterName;
+
+            } else {
+
+                signature
+                        << "ref "
+                        << parameterType
+                        << " "
+                        << parameterName;
+            }
 
         } else {
 
@@ -422,39 +520,39 @@ static void collect_script_method(
 
 
         typeSignature
-                << get_script_type(param);
+                << get_script_type(
+                        param
+                );
+
 
         hasArgument = true;
     }
 
 
     /*
-     * MethodInfo is passed to IL2CPP generated methods.
+     * MethodInfo is the final native argument.
      */
     if (hasArgument) {
         signature << ", ";
     }
 
+
     signature
             << "const MethodInfo* method)";
 
 
-    /*
-     * MethodInfo pointer
-     */
-    typeSignature << "p";
+    typeSignature
+            << "p";
 
 
     result.signature =
             signature.str();
 
+
     result.typeSignature =
             typeSignature.str();
 
 
-    /*
-     * Store it.
-     */
     g_scriptMethods.emplace_back(
             std::move(result)
     );
@@ -471,8 +569,10 @@ static void write_script_json(
         const char *outDir) {
 
     if (!outDir) {
+        LOGE("script.json: outDir is null");
         return;
     }
+
 
     std::string path =
             std::string(outDir)
@@ -501,11 +601,8 @@ static void write_script_json(
 
 
     /*
-     * ========================================================
      * ScriptMethod
-     * ========================================================
      */
-
     out << "  \"ScriptMethod\": [\n";
 
 
@@ -555,6 +652,7 @@ static void write_script_json(
             out << ",";
         }
 
+
         out << "\n";
     }
 
@@ -563,17 +661,12 @@ static void write_script_json(
 
 
     /*
-     * ========================================================
-     * Runtime dumper does not have the metadata usage
-     * information that desktop Il2CppDumper obtains from
-     * global-metadata.dat.
-     * ========================================================
+     * These require metadata information from
+     * global-metadata.dat and are therefore empty
+     * in this runtime-only implementation.
      */
-
     out << "  \"ScriptString\": [],\n";
-
     out << "  \"ScriptMetadata\": [],\n";
-
     out << "  \"ScriptMetadataMethod\": []\n";
 
 
@@ -588,8 +681,9 @@ static void write_script_json(
             path.c_str()
     );
 
+
     LOGI(
-            "script.json methods: %zu",
+            "script.json method count: %zu",
             g_scriptMethods.size()
     );
 }
@@ -597,38 +691,20 @@ static void write_script_json(
 
 /*
  * ============================================================
- * IL2CPP API initialization
+ * Method modifier
  * ============================================================
  */
 
-void init_il2cpp_api(void *handle) {
-
-#define DO_API(r, n, p) {                      \
-    n = (r (*) p)xdl_sym(handle, #n, nullptr); \
-    if(!n) {                                   \
-        LOGW("api not found %s", #n);          \
-    }                                          \
-}
-
-#include "il2cpp-api-functions.h"
-
-#undef DO_API
-}
-
-
-/*
- * ============================================================
- * Method modifiers
- * ============================================================
- */
-
-std::string get_method_modifier(uint32_t flags) {
+std::string get_method_modifier(
+        uint32_t flags) {
 
     std::stringstream outPut;
+
 
     auto access =
             flags &
             METHOD_ATTRIBUTE_MEMBER_ACCESS_MASK;
+
 
     switch (access) {
 
@@ -706,32 +782,7 @@ std::string get_method_modifier(uint32_t flags) {
 
 /*
  * ============================================================
- * ByRef
- * ============================================================
- */
-
-bool _il2cpp_type_is_byref(
-        const Il2CppType *type) {
-
-    if (!type) {
-        return false;
-    }
-
-    auto byref =
-            type->byref;
-
-    if (il2cpp_type_is_byref) {
-        byref =
-                il2cpp_type_is_byref(type);
-    }
-
-    return byref;
-}
-
-
-/*
- * ============================================================
- * Dump method
+ * dump_method
  * ============================================================
  */
 
@@ -740,7 +791,9 @@ std::string dump_method(
 
     std::stringstream outPut;
 
-    outPut << "\n\t// Methods\n";
+
+    outPut
+            << "\n\t// Methods\n";
 
 
     void *iter = nullptr;
@@ -753,7 +806,7 @@ std::string dump_method(
 
 
         /*
-         * Collect information for script.json.
+         * Collect script.json information.
          */
         collect_script_method(
                 method,
@@ -762,11 +815,13 @@ std::string dump_method(
 
 
         /*
-         * Existing dump.cs generation.
+         * Existing dump.cs.
          */
         if (method->methodPointer) {
 
-            outPut << "\t// RVA: 0x";
+            outPut
+                    << "\t// RVA: 0x";
+
 
             outPut
                     << std::hex
@@ -774,7 +829,10 @@ std::string dump_method(
                        method->methodPointer
                        - il2cpp_base;
 
-            outPut << " VA: 0x";
+
+            outPut
+                    << " VA: 0x";
+
 
             outPut
                     << std::hex
@@ -788,23 +846,12 @@ std::string dump_method(
         }
 
 
-        /*
-         * Slot
-         */
-        /*
-        if (method->slot != 65535) {
-            outPut
-                    << " Slot: "
-                    << std::dec
-                    << method->slot;
-        }
-        */
-
-
-        outPut << "\n\t";
+        outPut
+                << "\n\t";
 
 
         uint32_t iflags = 0;
+
 
         auto flags =
                 il2cpp_method_get_flags(
@@ -814,7 +861,9 @@ std::string dump_method(
 
 
         outPut
-                << get_method_modifier(flags);
+                << get_method_modifier(
+                        flags
+                );
 
 
         /*
@@ -859,7 +908,7 @@ std::string dump_method(
                 );
 
 
-        for (int i = 0;
+        for (uint32_t i = 0;
              i < param_count;
              ++i) {
 
@@ -937,16 +986,22 @@ std::string dump_method(
                     );
 
 
-            outPut << ", ";
+            outPut
+                    << ", ";
         }
 
 
         if (param_count > 0) {
-            outPut.seekp(-2, outPut.cur);
+
+            outPut.seekp(
+                    -2,
+                    outPut.cur
+            );
         }
 
 
-        outPut << ") { }\n";
+        outPut
+                << ") { }\n";
     }
 
 
@@ -956,7 +1011,7 @@ std::string dump_method(
 
 /*
  * ============================================================
- * Dump property
+ * dump_property
  * ============================================================
  */
 
@@ -965,7 +1020,9 @@ std::string dump_property(
 
     std::stringstream outPut;
 
-    outPut << "\n\t// Properties\n";
+
+    outPut
+            << "\n\t// Properties\n";
 
 
     void *iter = nullptr;
@@ -1074,7 +1131,8 @@ std::string dump_property(
             }
 
 
-            outPut << "}\n";
+            outPut
+                    << "}\n";
 
         } else {
 
@@ -1094,7 +1152,7 @@ std::string dump_property(
 
 /*
  * ============================================================
- * Dump field
+ * dump_field
  * ============================================================
  */
 
@@ -1103,7 +1161,9 @@ std::string dump_field(
 
     std::stringstream outPut;
 
-    outPut << "\n\t// Fields\n";
+
+    outPut
+            << "\n\t// Fields\n";
 
 
     auto is_enum =
@@ -1202,9 +1262,6 @@ std::string dump_field(
                 );
 
 
-        /*
-         * Enum constant
-         */
         if ((attrs &
              FIELD_ATTRIBUTE_LITERAL)
             &&
@@ -1242,7 +1299,7 @@ std::string dump_field(
 
 /*
  * ============================================================
- * Dump type
+ * dump_type
  * ============================================================
  */
 
@@ -1307,43 +1364,30 @@ std::string dump_type(
         case TYPE_ATTRIBUTE_PUBLIC:
         case TYPE_ATTRIBUTE_NESTED_PUBLIC:
 
-            outPut
-                    << "public ";
-
+            outPut << "public ";
             break;
-
 
         case TYPE_ATTRIBUTE_NOT_PUBLIC:
         case TYPE_ATTRIBUTE_NESTED_FAM_AND_ASSEM:
         case TYPE_ATTRIBUTE_NESTED_ASSEMBLY:
 
-            outPut
-                    << "internal ";
-
+            outPut << "internal ";
             break;
-
 
         case TYPE_ATTRIBUTE_NESTED_PRIVATE:
 
-            outPut
-                    << "private ";
-
+            outPut << "private ";
             break;
-
 
         case TYPE_ATTRIBUTE_NESTED_FAMILY:
 
-            outPut
-                    << "protected ";
-
+            outPut << "protected ";
             break;
-
 
         case TYPE_ATTRIBUTE_NESTED_FAM_OR_ASSEM:
 
             outPut
                     << "protected internal ";
-
             break;
     }
 
@@ -1354,8 +1398,7 @@ std::string dump_type(
         (flags &
          TYPE_ATTRIBUTE_SEALED)) {
 
-        outPut
-                << "static ";
+        outPut << "static ";
 
     } else if (
             !(flags &
@@ -1364,8 +1407,7 @@ std::string dump_type(
             (flags &
              TYPE_ATTRIBUTE_ABSTRACT)) {
 
-        outPut
-                << "abstract ";
+        outPut << "abstract ";
 
     } else if (
             !is_valuetype
@@ -1375,31 +1417,26 @@ std::string dump_type(
             (flags &
              TYPE_ATTRIBUTE_SEALED)) {
 
-        outPut
-                << "sealed ";
+        outPut << "sealed ";
     }
 
 
     if (flags &
         TYPE_ATTRIBUTE_INTERFACE) {
 
-        outPut
-                << "interface ";
+        outPut << "interface ";
 
     } else if (is_enum) {
 
-        outPut
-                << "enum ";
+        outPut << "enum ";
 
     } else if (is_valuetype) {
 
-        outPut
-                << "struct ";
+        outPut << "struct ";
 
     } else {
 
-        outPut
-                << "class ";
+        outPut << "class ";
     }
 
 
@@ -1410,7 +1447,7 @@ std::string dump_type(
 
 
     /*
-     * Parent/interface
+     * Parent/interfaces
      */
     std::vector<std::string> extends;
 
@@ -1478,7 +1515,8 @@ std::string dump_type(
     }
 
 
-    outPut << "\n{";
+    outPut
+            << "\n{";
 
 
     outPut
@@ -1509,7 +1547,7 @@ std::string dump_type(
 
 /*
  * ============================================================
- * IL2CPP API init
+ * il2cpp_api_init
  * ============================================================
  */
 
@@ -1531,8 +1569,7 @@ void il2cpp_api_init(
 
 
         if (dladdr(
-                (void *)
-                il2cpp_domain_get_assemblies,
+                (void *) il2cpp_domain_get_assemblies,
                 &dlInfo)) {
 
             il2cpp_base =
@@ -1579,7 +1616,7 @@ void il2cpp_api_init(
 
 /*
  * ============================================================
- * Main dump
+ * il2cpp_dump
  * ============================================================
  */
 
@@ -1590,13 +1627,13 @@ void il2cpp_dump(
 
 
     /*
-     * Clear previous runtime JSON data.
+     * Clear old JSON data.
      */
     g_scriptMethods.clear();
 
 
     /*
-     * Get domain.
+     * Domain
      */
     size_t size = 0;
 
@@ -1613,7 +1650,7 @@ void il2cpp_dump(
 
 
     /*
-     * Image header.
+     * Image list
      */
     std::stringstream imageOutput;
 
@@ -1640,14 +1677,17 @@ void il2cpp_dump(
 
 
     /*
-     * dump.cs output.
+     * dump.cs
      */
     std::vector<std::string> outPuts;
 
 
     /*
-     * Newer IL2CPP.
+     * ========================================================
+     * New IL2CPP
+     * ========================================================
      */
+
     if (il2cpp_image_get_class) {
 
         LOGI(
@@ -1727,8 +1767,11 @@ void il2cpp_dump(
     } else {
 
         /*
-         * Older IL2CPP.
+         * ====================================================
+         * Old IL2CPP
+         * ====================================================
          */
+
         LOGI(
                 "Version less than 2018.3"
         );
@@ -1938,9 +1981,9 @@ void il2cpp_dump(
     );
 
 
-    auto outPath =
+    std::string outPath =
             std::string(outDir)
-            .append("/files/dump.cs");
+            + "/files/dump.cs";
 
 
     std::ofstream outStream(
@@ -1963,16 +2006,11 @@ void il2cpp_dump(
             << imageOutput.str();
 
 
-    auto count =
-            outPuts.size();
-
-
-    for (size_t i = 0;
-         i < count;
-         ++i) {
+    for (const auto &output :
+         outPuts) {
 
         outStream
-                << outPuts[i];
+                << output;
     }
 
 
@@ -1998,7 +2036,7 @@ void il2cpp_dump(
 
     /*
      * ========================================================
-     * Finished
+     * Done
      * ========================================================
      */
 

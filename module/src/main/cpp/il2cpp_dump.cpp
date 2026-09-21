@@ -16,6 +16,9 @@
 #include "log.h"
 #include "il2cpp-tabledefs.h"
 #include "il2cpp-class.h"
+#include "xdl.h"
+#include <thread>
+#include <unistd.h>
 
 #define DO_API(r, n, p) r (*n) p
 #include "il2cpp-api-functions.h"
@@ -86,9 +89,14 @@ static std::vector<uint64_t>             g_addresses;  // all unique RVAs (for A
 // ─────────────────────────────────────────────
 void il2cpp_api_init(void *handle) {
     il2cpp_handle = handle;
-#define DO_API(r, n, p) n = (r (*) p)dlsym(il2cpp_handle, #n)
+    int missing = 0;
+#define DO_API(r, n, p) \
+    n = (r (*) p)xdl_sym(il2cpp_handle, #n, nullptr); \
+    if (!n) { n = (r (*) p)dlsym(RTLD_DEFAULT, #n); } \
+    if (!n) { missing++; LOGW("il2cpp api missing: %s", #n); }
 #include "il2cpp-api-functions.h"
 #undef DO_API
+    LOGI("il2cpp_api_init: %d symbols missing", missing);
 }
 
 uint64_t get_module_base(const char *module_name) {
@@ -445,7 +453,7 @@ static void write_script_json(const std::string &outDir) {
 //  il2cpp_dump — main entry point (unchanged
 //  structure; script.json written at the end)
 // ─────────────────────────────────────────────
-void il2cpp_dump(const char *outDir) {
+static void do_dump(const char *outDir) {
     LOGI("il2cpp_handle: %p", il2cpp_handle);
 
     if (il2cpp_domain_get_assemblies) {
@@ -531,6 +539,7 @@ void il2cpp_dump(const char *outDir) {
 
     // ── Write dump.cs (unchanged) ────────────
     LOGI("writing dump.cs");
+    mkdir((std::string(outDir) + "/files").c_str(), 0777);
     auto outPath = std::string(outDir) + "/files/dump.cs";
     std::ofstream outStream(outPath);
     outStream << imageOutput.str();
@@ -542,4 +551,24 @@ void il2cpp_dump(const char *outDir) {
     write_script_json(std::string(outDir));
 
     LOGI("dump done!");
+}
+
+// Public entry: never block the caller, wait for il2cpp to be ready.
+void il2cpp_dump(const char *outDir) {
+    std::string dir(outDir);
+    std::thread([dir]() {
+        // wait until the il2cpp runtime is initialized (max ~20 s)
+        bool ready = false;
+        for (int i = 0; i < 200 && il2cpp_domain_get; ++i) {
+            if (il2cpp_domain_get()) { ready = true; break; }
+            usleep(100 * 1000);  // 100 ms
+        }
+        if (!ready) {
+            LOGE("il2cpp runtime not initialized, aborting dump");
+            return;
+        }
+        // make sure the output directory exists
+        mkdir((dir + "/files").c_str(), 0777);
+        do_dump(dir.c_str());
+    }).detach();
 }
